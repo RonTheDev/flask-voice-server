@@ -1,55 +1,77 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
+from openai import OpenAI
 from pydub import AudioSegment
-from shutil import which
-import openai
-import os
 import tempfile
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
-# Fix for Render's pydub needing explicit ffmpeg path
-AudioSegment.converter = which("ffmpeg")
-
-@app.route("/")
-def index():
-    return "Voice server is live."
-
-@app.route("/transcribe", methods=["POST"])
-def transcribe():
-    if "audio" not in request.files:
-        return jsonify({"error": "No audio uploaded"}), 400
-
-    audio_file = request.files["audio"]
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
-        audio_file.save(temp_audio.name)
-        temp_wav = temp_audio.name + ".mp3"
-
-        sound = AudioSegment.from_file(temp_audio.name)
-        sound.export(temp_wav, format="mp3")
-
-    with open(temp_wav, "rb") as file:
-        transcript = openai.audio.transcriptions.create(model="whisper-1", file=file)
-        text = transcript.text
-
-    response = openai.audio.speech.create(model="tts-1", voice="onyx", input=text)
-    audio_data = response.read()
-
-    return jsonify({"text": text, "audio": {"data": list(audio_data)}})
+client = OpenAI()
 
 @app.route("/speak", methods=["POST"])
 def speak():
-    text = request.json.get("text")
-    if not text:
-        return jsonify({"error": "No text provided"}), 400
+    if "audio" not in request.files:
+        return "No audio file", 400
 
-    response = openai.audio.speech.create(model="tts-1", voice="onyx", input=text)
-    audio_data = response.read()
-    return jsonify({"text": text, "audio": {"data": list(audio_data)}})
+    audio_file = request.files["audio"]
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_in:
+        audio_file.save(temp_in.name)
+
+    try:
+        audio = AudioSegment.from_file(temp_in.name)
+        wav_path = temp_in.name.replace(".webm", ".wav")
+        audio.export(wav_path, format="wav")
+
+        with open(wav_path, "rb") as f:
+            transcription = client.audio.transcriptions.create(model="whisper-1", file=f).text
+
+        print("User said:", transcription)
+
+        chat_completion = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": transcription}]
+        )
+
+        reply_text = chat_completion.choices[0].message.content
+
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice="onyx",
+            input=reply_text
+        )
+
+        output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
+        response.stream_to_file(output_path)
+
+        headers = {
+            "x-transcript": transcription,
+            "x-reply-text": reply_text
+        }
+
+        return send_file(output_path, mimetype="audio/mpeg", as_attachment=False, download_name="response.mp3", headers=headers)
+
+    except Exception as e:
+        print("Error:", e)
+        return "Internal Server Error", 500
+    finally:
+        os.remove(temp_in.name)
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+
+@app.route("/text", methods=["POST"])
+def text():
+    data = request.get_json()
+    prompt = data.get("prompt", "")
+
+    chat_completion = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return jsonify({"reply": chat_completion.choices[0].message.content})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
