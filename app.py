@@ -1,18 +1,20 @@
 from flask import Flask, request, jsonify, send_file
-from flask_cors import CORS  # ✅ Enable CORS
+from flask_cors import CORS
 import openai
 import os
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+# Initialize Flask app and enable CORS
 app = Flask(__name__)
-CORS(app)  # ✅ Allow all origins (for dev use only)
+CORS(app)
 
 @app.route("/")
 def home():
-    return "Your Flask server is running!"
+    return "✅ Flask server is running!"
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
@@ -28,43 +30,34 @@ def transcribe():
             transcript = openai.Audio.transcribe("whisper-1", f)
         return jsonify({"transcription": transcript["text"]})
     except Exception as e:
+        print("❌ Transcription error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 @app.route("/speak", methods=["POST"])
 def speak():
-    data = request.json
-    user_text = data.get("text", "")
-
-    if not user_text:
-        return jsonify({"error": "No text provided"}), 400
-
     try:
-        # ✅ Use GPT-4 to generate response
-        chat_response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "אתה עוזר קולי אינטליגנטי ודובר עברית"},
-                {"role": "user", "content": user_text}
-            ]
-        )
-        bot_reply = chat_response["choices"][0]["message"]["content"]
-        print("🧠 GPT-4 reply:", bot_reply)
+        data = request.get_json()
+        text = data.get("text", "")
 
-        # ✅ Convert bot reply to speech
-        tts_response = openai.audio.speech.create(
+        if not text:
+            return jsonify({"error": "No text provided"}), 400
+
+        print("🔊 Generating speech for:", text)
+
+        response = openai.audio.speech.create(
             model="tts-1",
-            voice="onyx",  # ✅ Man voice (deep, clear)
-            input=bot_reply,
+            voice="onyx",  # Male voice
+            input=text,
         )
 
-        audio_path = "tts_output.mp3"
-        tts_response.stream_to_file(audio_path)
+        output_path = "tts_output.mp3"
+        response.stream_to_file(output_path)
 
-        # ✅ Return bot reply text + audio
-        return send_file(audio_path, mimetype="audio/mpeg", as_attachment=False,
-                         download_name="bot_reply.mp3", conditional=True,
-                         headers={"Bot-Reply": bot_reply})
+        print("✅ Audio generated successfully.")
+        return send_file(output_path, mimetype="audio/mpeg")
+
     except Exception as e:
+        print("❌ TTS generation error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
