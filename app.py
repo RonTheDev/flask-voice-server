@@ -4,73 +4,49 @@ from openai import OpenAI
 from pydub import AudioSegment
 from pydub.utils import which
 import os
+import tempfile
 import uuid
-
-# Set ffmpeg path for pydub
-AudioSegment.converter = which("ffmpeg")
 
 app = Flask(__name__)
 CORS(app)
 
-openai_client = OpenAI()
+# Whisper + TTS config
+client = OpenAI()
+AudioSegment.converter = which("ffmpeg")
 
-@app.route("/")
-def index():
-    return "Voice Server is Running"
+@app.route('/')
+def home():
+    return "Voice server is up!"
 
-@app.route("/transcribe", methods=["POST"])
-def transcribe():
-    if "audio" not in request.files:
-        return jsonify({"error": "No audio file"}), 400
+@app.route('/speak', methods=['POST'])
+def speak():
+    if 'audio' not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
 
-    audio_file = request.files["audio"]
-    temp_filename = f"temp_{uuid.uuid4()}.webm"
-    output_filename = temp_filename.replace(".webm", ".mp3")
+    audio_file = request.files['audio']
+    temp_dir = tempfile.mkdtemp()
+    input_path = os.path.join(temp_dir, f"{uuid.uuid4()}.webm")
+    output_path = input_path.replace(".webm", ".mp3")
 
-    # Save and convert
-    audio_path = os.path.join("/tmp", temp_filename)
-    output_path = os.path.join("/tmp", output_filename)
-    audio_file.save(audio_path)
-    audio = AudioSegment.from_file(audio_path)
-    audio.export(output_path, format="mp3")
+    audio_file.save(input_path)
+    sound = AudioSegment.from_file(input_path)
+    sound.export(output_path, format="mp3")
 
-    # Transcribe
     with open(output_path, "rb") as f:
-        transcription = openai_client.audio.transcriptions.create(
+        transcript = client.audio.transcriptions.create(
             model="whisper-1",
-            file=f,
-            language="he"
+            file=f
         )
 
-    return jsonify({"text": transcription.text})
+    text = transcript.text.strip()
 
-
-@app.route("/speak", methods=["POST"])
-def speak():
-    data = request.get_json()
-    prompt = data.get("prompt")
-
-    if not prompt:
-        return jsonify({"error": "Missing prompt"}), 400
-
-    completion = openai_client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    bot_response = completion.choices[0].message.content
-
-    # TTS
-    tts_response = openai_client.audio.speech.create(
+    response = client.audio.speech.create(
         model="tts-1",
         voice="onyx",
-        input=bot_response
+        input=text if text else "לא הבנתי, נסה שוב."
     )
 
-    output_path = f"/tmp/{uuid.uuid4()}.mp3"
-    tts_response.stream_to_file(output_path)
+    tts_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
+    response.stream_to_file(tts_path)
 
-    return send_file(output_path, mimetype="audio/mpeg", download_name="response.mp3"), 200
-
-if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=5000)
+    return send_file(tts_path, mimetype='audio/mpeg', as_attachment=False, download_name="response.mp3", headers={"X-Transcript": text})
