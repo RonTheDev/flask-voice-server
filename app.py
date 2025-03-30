@@ -41,7 +41,7 @@ def speak():
     try:
         response = openai.audio.speech.create(
             model="tts-1",
-            voice="alloy",  # You can change this to echo, fable, onyx, nova, shimmer
+            voice="onyx",  # You can change this to echo, fable, onyx, nova, shimmer
             input=text,
         )
 
