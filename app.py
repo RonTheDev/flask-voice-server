@@ -1,74 +1,76 @@
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-import openai
-import os
-from pydub.utils import which
-AudioSegment.converter = which("ffmpeg")
-from dotenv import load_dotenv
+from openai import OpenAI
 from pydub import AudioSegment
+from pydub.utils import which
+import os
 import uuid
 
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Set ffmpeg path for pydub
+AudioSegment.converter = which("ffmpeg")
 
 app = Flask(__name__)
 CORS(app)
 
+openai_client = OpenAI()
+
 @app.route("/")
-def home():
-    return "Your Flask server is running!"
+def index():
+    return "Voice Server is Running"
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
     if "audio" not in request.files:
-        return jsonify({"error": "No audio file uploaded"}), 400
+        return jsonify({"error": "No audio file"}), 400
 
     audio_file = request.files["audio"]
-    original_path = f"temp_{uuid.uuid4().hex}.webm"
-    converted_path = f"converted_{uuid.uuid4().hex}.mp3"
+    temp_filename = f"temp_{uuid.uuid4()}.webm"
+    output_filename = temp_filename.replace(".webm", ".mp3")
 
-    try:
-        # Save uploaded WebM
-        audio_file.save(original_path)
+    # Save and convert
+    audio_path = os.path.join("/tmp", temp_filename)
+    output_path = os.path.join("/tmp", output_filename)
+    audio_file.save(audio_path)
+    audio = AudioSegment.from_file(audio_path)
+    audio.export(output_path, format="mp3")
 
-        # Convert to mp3 using pydub
-        sound = AudioSegment.from_file(original_path)
-        sound.export(converted_path, format="mp3")
+    # Transcribe
+    with open(output_path, "rb") as f:
+        transcription = openai_client.audio.transcriptions.create(
+            model="whisper-1",
+            file=f,
+            language="he"
+        )
 
-        # Transcribe with OpenAI
-        with open(converted_path, "rb") as f:
-            transcript = openai.Audio.transcribe("whisper-1", f)
+    return jsonify({"text": transcription.text})
 
-        return jsonify({"transcription": transcript["text"]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if os.path.exists(original_path):
-            os.remove(original_path)
-        if os.path.exists(converted_path):
-            os.remove(converted_path)
 
 @app.route("/speak", methods=["POST"])
 def speak():
-    data = request.json
-    text = data.get("text", "")
+    data = request.get_json()
+    prompt = data.get("prompt")
 
-    if not text:
-        return jsonify({"error": "No text provided"}), 400
+    if not prompt:
+        return jsonify({"error": "Missing prompt"}), 400
 
-    try:
-        response = openai.audio.speech.create(
-            model="tts-1",
-            voice="onyx",  # Male voice
-            input=text,
-        )
+    completion = openai_client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}]
+    )
 
-        output_path = "tts_output.mp3"
-        response.stream_to_file(output_path)
+    bot_response = completion.choices[0].message.content
 
-        return send_file(output_path, mimetype="audio/mpeg")
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    # TTS
+    tts_response = openai_client.audio.speech.create(
+        model="tts-1",
+        voice="onyx",
+        input=bot_response
+    )
+
+    output_path = f"/tmp/{uuid.uuid4()}.mp3"
+    tts_response.stream_to_file(output_path)
+
+    return send_file(output_path, mimetype="audio/mpeg", download_name="response.mp3"), 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(debug=False, host="0.0.0.0", port=5000)
