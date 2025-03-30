@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import openai
 import os
+from pydub.utils import which
+AudioSegment.converter = which("ffmpeg")
 from dotenv import load_dotenv
 from pydub import AudioSegment
 import uuid
