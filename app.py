@@ -3,6 +3,7 @@ from flask_cors import CORS
 import openai
 import os
 from dotenv import load_dotenv
+import tempfile
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -20,15 +21,18 @@ def transcribe():
         return jsonify({"error": "No audio file uploaded"}), 400
 
     audio_file = request.files["audio"]
-    audio_path = "temp_audio.webm"
-    audio_file.save(audio_path)
+    
+    # Save audio to temp .webm file
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
+        audio_path = temp_audio.name
+        audio_file.save(audio_path)
 
     try:
         with open(audio_path, "rb") as f:
             transcript = openai.Audio.transcribe("whisper-1", f)
         return jsonify({"transcription": transcript["text"]})
     except Exception as e:
-        print("🔥 Transcription error:", str(e))  # DEBUG LOG
+        print("❌ Transcription Error:", str(e))  # Print error in logs
         return jsonify({"error": str(e)}), 500
 
 @app.route("/speak", methods=["POST"])
@@ -42,15 +46,15 @@ def speak():
     try:
         response = openai.audio.speech.create(
             model="tts-1",
-            voice="onyx",  # ✅ Male voice
+            voice="onyx",
             input=text,
         )
 
-        output_path = "tts_output.mp3"
-        response.stream_to_file(output_path)
-        return send_file(output_path, mimetype="audio/mpeg")
+        audio_path = "tts_output.mp3"
+        response.stream_to_file(audio_path)
+        return send_file(audio_path, mimetype="audio/mpeg")
     except Exception as e:
-        print("🔥 TTS error:", str(e))  # DEBUG LOG
+        print("❌ TTS Error:", str(e))  # Print error in logs
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
