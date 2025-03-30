@@ -1,52 +1,55 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 from flask_cors import CORS
-from openai import OpenAI
 from pydub import AudioSegment
-from pydub.utils import which
+from shutil import which
+import openai
 import os
 import tempfile
-import uuid
 
 app = Flask(__name__)
 CORS(app)
 
-# Whisper + TTS config
-client = OpenAI()
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Fix for Render's pydub needing explicit ffmpeg path
 AudioSegment.converter = which("ffmpeg")
 
-@app.route('/')
-def home():
-    return "Voice server is up!"
+@app.route("/")
+def index():
+    return "Voice server is live."
 
-@app.route('/speak', methods=['POST'])
+@app.route("/transcribe", methods=["POST"])
+def transcribe():
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio uploaded"}), 400
+
+    audio_file = request.files["audio"]
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
+        audio_file.save(temp_audio.name)
+        temp_wav = temp_audio.name + ".mp3"
+
+        sound = AudioSegment.from_file(temp_audio.name)
+        sound.export(temp_wav, format="mp3")
+
+    with open(temp_wav, "rb") as file:
+        transcript = openai.audio.transcriptions.create(model="whisper-1", file=file)
+        text = transcript.text
+
+    response = openai.audio.speech.create(model="tts-1", voice="onyx", input=text)
+    audio_data = response.read()
+
+    return jsonify({"text": text, "audio": {"data": list(audio_data)}})
+
+@app.route("/speak", methods=["POST"])
 def speak():
-    if 'audio' not in request.files:
-        return jsonify({"error": "No audio file provided"}), 400
+    text = request.json.get("text")
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
 
-    audio_file = request.files['audio']
-    temp_dir = tempfile.mkdtemp()
-    input_path = os.path.join(temp_dir, f"{uuid.uuid4()}.webm")
-    output_path = input_path.replace(".webm", ".mp3")
+    response = openai.audio.speech.create(model="tts-1", voice="onyx", input=text)
+    audio_data = response.read()
+    return jsonify({"text": text, "audio": {"data": list(audio_data)}})
 
-    audio_file.save(input_path)
-    sound = AudioSegment.from_file(input_path)
-    sound.export(output_path, format="mp3")
-
-    with open(output_path, "rb") as f:
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=f
-        )
-
-    text = transcript.text.strip()
-
-    response = client.audio.speech.create(
-        model="tts-1",
-        voice="onyx",
-        input=text if text else "לא הבנתי, נסה שוב."
-    )
-
-    tts_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
-    response.stream_to_file(tts_path)
-
-    return send_file(tts_path, mimetype='audio/mpeg', as_attachment=False, download_name="response.mp3", headers={"X-Transcript": text})
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
