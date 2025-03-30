@@ -3,8 +3,8 @@ from flask_cors import CORS
 import openai
 import os
 from dotenv import load_dotenv
-import tempfile
 from pydub import AudioSegment
+import uuid
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -14,7 +14,7 @@ CORS(app)
 
 @app.route("/")
 def home():
-    return "Flask server is running!"
+    return "Your Flask server is running!"
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
@@ -22,25 +22,29 @@ def transcribe():
         return jsonify({"error": "No audio file uploaded"}), 400
 
     audio_file = request.files["audio"]
-    
-    # Save temp webm file
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as webm_temp:
-        webm_path = webm_temp.name
-        audio_file.save(webm_path)
+    original_path = f"temp_{uuid.uuid4().hex}.webm"
+    converted_path = f"converted_{uuid.uuid4().hex}.mp3"
 
     try:
-        # Convert webm to wav using pydub
-        audio = AudioSegment.from_file(webm_path, format="webm")
-        wav_path = webm_path.replace(".webm", ".wav")
-        audio.export(wav_path, format="wav")
+        # Save uploaded WebM
+        audio_file.save(original_path)
 
-        # Transcribe
-        with open(wav_path, "rb") as f:
+        # Convert to mp3 using pydub
+        sound = AudioSegment.from_file(original_path)
+        sound.export(converted_path, format="mp3")
+
+        # Transcribe with OpenAI
+        with open(converted_path, "rb") as f:
             transcript = openai.Audio.transcribe("whisper-1", f)
+
         return jsonify({"transcription": transcript["text"]})
     except Exception as e:
-        print("❌ Transcription Error:", str(e))
         return jsonify({"error": str(e)}), 500
+    finally:
+        if os.path.exists(original_path):
+            os.remove(original_path)
+        if os.path.exists(converted_path):
+            os.remove(converted_path)
 
 @app.route("/speak", methods=["POST"])
 def speak():
@@ -53,14 +57,15 @@ def speak():
     try:
         response = openai.audio.speech.create(
             model="tts-1",
-            voice="onyx",
+            voice="onyx",  # Male voice
             input=text,
         )
+
         output_path = "tts_output.mp3"
         response.stream_to_file(output_path)
+
         return send_file(output_path, mimetype="audio/mpeg")
     except Exception as e:
-        print("❌ TTS Error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
