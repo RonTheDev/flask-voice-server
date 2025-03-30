@@ -4,6 +4,7 @@ import openai
 import os
 from dotenv import load_dotenv
 import tempfile
+from pydub import AudioSegment
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -22,17 +23,23 @@ def transcribe():
 
     audio_file = request.files["audio"]
     
-    # Save audio to temp .webm file
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
-        audio_path = temp_audio.name
-        audio_file.save(audio_path)
+    # Save temp webm file
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as webm_temp:
+        webm_path = webm_temp.name
+        audio_file.save(webm_path)
 
     try:
-        with open(audio_path, "rb") as f:
+        # Convert webm to wav using pydub
+        audio = AudioSegment.from_file(webm_path, format="webm")
+        wav_path = webm_path.replace(".webm", ".wav")
+        audio.export(wav_path, format="wav")
+
+        # Transcribe
+        with open(wav_path, "rb") as f:
             transcript = openai.Audio.transcribe("whisper-1", f)
         return jsonify({"transcription": transcript["text"]})
     except Exception as e:
-        print("❌ Transcription Error:", str(e))  # Print error in logs
+        print("❌ Transcription Error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 @app.route("/speak", methods=["POST"])
@@ -49,12 +56,11 @@ def speak():
             voice="onyx",
             input=text,
         )
-
-        audio_path = "tts_output.mp3"
-        response.stream_to_file(audio_path)
-        return send_file(audio_path, mimetype="audio/mpeg")
+        output_path = "tts_output.mp3"
+        response.stream_to_file(output_path)
+        return send_file(output_path, mimetype="audio/mpeg")
     except Exception as e:
-        print("❌ TTS Error:", str(e))  # Print error in logs
+        print("❌ TTS Error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
