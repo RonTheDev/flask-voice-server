@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS  # ✅ NEW: CORS support
 import openai
 import os
 from dotenv import load_dotenv
@@ -7,6 +8,7 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
+CORS(app)  # ✅ NEW: Allow cross-origin requests
 
 @app.route("/")
 def home():
