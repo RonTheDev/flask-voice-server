@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, send_file
-from flask_cors import CORS  # ✅ NEW: CORS support
+from flask_cors import CORS  # ✅ Enable CORS
 import openai
 import os
 from dotenv import load_dotenv
@@ -8,7 +8,7 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
-CORS(app)  # ✅ NEW: Allow cross-origin requests
+CORS(app)  # ✅ Allow all origins (for dev use only)
 
 @app.route("/")
 def home():
@@ -33,22 +33,37 @@ def transcribe():
 @app.route("/speak", methods=["POST"])
 def speak():
     data = request.json
-    text = data.get("text", "")
+    user_text = data.get("text", "")
 
-    if not text:
+    if not user_text:
         return jsonify({"error": "No text provided"}), 400
 
     try:
-        response = openai.audio.speech.create(
+        # ✅ Use GPT-4 to generate response
+        chat_response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "אתה עוזר קולי אינטליגנטי ודובר עברית"},
+                {"role": "user", "content": user_text}
+            ]
+        )
+        bot_reply = chat_response["choices"][0]["message"]["content"]
+        print("🧠 GPT-4 reply:", bot_reply)
+
+        # ✅ Convert bot reply to speech
+        tts_response = openai.audio.speech.create(
             model="tts-1",
-            voice="onyx",  # You can change this to echo, fable, onyx, nova, shimmer
-            input=text,
+            voice="onyx",  # ✅ Man voice (deep, clear)
+            input=bot_reply,
         )
 
         audio_path = "tts_output.mp3"
-        response.stream_to_file(audio_path)
+        tts_response.stream_to_file(audio_path)
 
-        return send_file(audio_path, mimetype="audio/mpeg")
+        # ✅ Return bot reply text + audio
+        return send_file(audio_path, mimetype="audio/mpeg", as_attachment=False,
+                         download_name="bot_reply.mp3", conditional=True,
+                         headers={"Bot-Reply": bot_reply})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
