@@ -30,7 +30,6 @@ def transcribe():
                 file=f
             ).text
 
-        print("Transcription:", transcription)
         return jsonify({"transcription": transcription})
 
     except Exception as e:
