@@ -27,7 +27,8 @@ def transcribe():
         with open(wav_path, "rb") as f:
             transcription = client.audio.transcriptions.create(
                 model="whisper-1",
-                file=f
+                file=f,
+                language="he"  # ✅ Force Hebrew transcription
             ).text
 
         return jsonify({"transcription": transcription})
@@ -48,7 +49,10 @@ def speak():
     try:
         chat_completion = client.chat.completions.create(
             model="gpt-4",
-            messages=[{"role": "user", "content": user_text}]
+            messages=[
+                {"role": "system", "content": "ענה בעברית בלבד."},  # ✅ Always respond in Hebrew
+                {"role": "user", "content": user_text}
+            ]
         )
 
         reply_text = chat_completion.choices[0].message.content
@@ -76,7 +80,10 @@ def text():
     try:
         chat_completion = client.chat.completions.create(
             model="gpt-4",
-            messages=[{"role": "user", "content": prompt}]
+            messages=[
+                {"role": "system", "content": "ענה בעברית בלבד."},  # ✅ Force Hebrew for text mode too
+                {"role": "user", "content": prompt}
+            ]
         )
         return jsonify({"reply": chat_completion.choices[0].message.content})
 
