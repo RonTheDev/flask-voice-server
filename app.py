@@ -28,7 +28,7 @@ def transcribe():
             transcription = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=f,
-                language="he"  # ✅ Force Hebrew transcription
+                language="he"  # Force Hebrew transcription
             ).text
 
         return jsonify({"transcription": transcription})
@@ -49,8 +49,10 @@ def speak():
     try:
         chat_completion = client.chat.completions.create(
             model="gpt-4",
+            temperature=0.7,
             messages=[{"role": "user", "content": user_text}]
         )
+
         reply_text = chat_completion.choices[0].message.content
 
         speech = client.audio.speech.create(
@@ -76,6 +78,7 @@ def text():
     try:
         chat_completion = client.chat.completions.create(
             model="gpt-4",
+            temperature=0.7,
             messages=[{"role": "user", "content": prompt}]
         )
         return jsonify({"reply": chat_completion.choices[0].message.content})
