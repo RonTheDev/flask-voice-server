@@ -28,10 +28,11 @@ def transcribe():
             transcription = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=f,
-                language="he"  # Force Hebrew transcription
-            ).text
+                response_format="text",
+                language="he"  # Always Hebrew
+            )
 
-        return jsonify({"transcription": transcription})
+        return jsonify({"transcription": transcription.strip()})
 
     except Exception as e:
         print("Transcription error:", e)
@@ -49,8 +50,10 @@ def speak():
     try:
         chat_completion = client.chat.completions.create(
             model="gpt-4",
-            temperature=0.7,
-            messages=[{"role": "user", "content": user_text}]
+            messages=[
+                {"role": "system", "content": "תשיב בקצרה בעברית, בקול ברור. תן מענה מהיר לשאלה בלבד."},
+                {"role": "user", "content": user_text}
+            ]
         )
 
         reply_text = chat_completion.choices[0].message.content
@@ -61,10 +64,9 @@ def speak():
             input=reply_text
         )
 
-        output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
-        speech.stream_to_file(output_path)
-
-        return send_file(output_path, mimetype="audio/mpeg")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_out:
+            speech.stream_to_file(temp_out.name)
+            return send_file(temp_out.name, mimetype="audio/mpeg")
 
     except Exception as e:
         print("Speak error:", e)
@@ -78,14 +80,33 @@ def text():
     try:
         chat_completion = client.chat.completions.create(
             model="gpt-4",
-            temperature=0.7,
             messages=[{"role": "user", "content": prompt}]
         )
         return jsonify({"reply": chat_completion.choices[0].message.content})
-
     except Exception as e:
         print("Text error:", e)
         return jsonify({"error": "Text request failed"}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    import multiprocessing
+    from gunicorn.app.base import BaseApplication
+
+    class FlaskApplication(BaseApplication):
+        def __init__(self, app, options=None):
+            self.application = app
+            self.options = options or {}
+            super().__init__()
+
+        def load_config(self):
+            for key, value in self.options.items():
+                self.cfg.set(key, value)
+
+        def load(self):
+            return self.application
+
+    options = {
+        "bind": "0.0.0.0:5000",
+        "workers": multiprocessing.cpu_count() * 2 + 1,
+    }
+
+    FlaskApplication(app, options).run()
