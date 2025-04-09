@@ -3,3 +3,4 @@ flask-cors
 openai
 pydub
 ffmpeg-python
+gunicorn==21.2.0
