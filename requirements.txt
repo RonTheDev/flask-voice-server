@@ -1,6 +1,5 @@
-flask
-openai
-python-dotenv
-flask-cors
-pydub
-ffmpeg
+flask==2.3.3
+flask-cors==4.0.0
+openai==1.16.1
+pydub==0.25.1
+ffmpeg-python==0.2.0
