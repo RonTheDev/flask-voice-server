@@ -84,7 +84,7 @@ def text():
     try:
         logger.info(f"Processing text request: {prompt}")
         chat_completion = client.chat.completions.create(
-            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v1:BKmDmxmg",
+            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v2:BKqOkT5f",
             messages=[{"role": "user", "content": prompt}]
         )
         
@@ -114,7 +114,7 @@ def voice_response():
         # First get the text response from GPT-4
         logger.info("Getting response from GPT-4...")
         chat_completion = client.chat.completions.create(
-            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v1:BKmDmxmg",
+            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v2:BKqOkT5f",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_text}
@@ -180,7 +180,7 @@ def speak():
         # Get response from GPT-4
         logger.info(f"Speak request: {user_text}")
         chat_completion = client.chat.completions.create(
-            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v1:BKmDmxmg",
+            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v2:BKqOkT5f",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_text}
