@@ -7,6 +7,7 @@ import os
 import traceback
 import logging
 import base64
+from concurrent.futures import ThreadPoolExecutor
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -16,6 +17,9 @@ logger = logging.getLogger(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 app = Flask(__name__)
 CORS(app, expose_headers=['X-Response-Text-B64'])  # Changed header name
+
+# Thread pool for parallel processing
+executor = ThreadPoolExecutor(max_workers=4)
 
 SYSTEM_PROMPT = "תשיב בקצרה בעברית, בקול ברור. תן מענה מהיר לשאלה בלבד."
 
@@ -134,9 +138,10 @@ def voice_response():
         # Generate TTS from the text response
         logger.info("Generating TTS...")
         speech = client.audio.speech.create(
-            model="tts-1",
+            model="tts-1-hd",  # Using HD model for better quality
             voice="onyx",
-            input=reply_text
+            input=reply_text,
+            speed=1.1  # Slightly faster speech for better responsiveness
         )
         
         speech.stream_to_file(temp_path)
@@ -238,6 +243,7 @@ if __name__ == "__main__":
         "bind": "0.0.0.0:5000",
         "workers": multiprocessing.cpu_count() * 2 + 1,
         "timeout": 120,  # Increase timeout for TTS processing
+        "keepalive": 5,  # Keep connections alive to reduce connection overhead
     }
     
     FlaskApplication(app, options).run()
