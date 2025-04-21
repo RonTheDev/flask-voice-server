@@ -7,6 +7,7 @@ import os
 import traceback
 import logging
 import base64
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 # Set up logging
@@ -22,6 +23,9 @@ CORS(app, expose_headers=['X-Response-Text-B64'])  # Changed header name
 executor = ThreadPoolExecutor(max_workers=4)
 
 SYSTEM_PROMPT = "תשיב בקצרה בעברית, בקול ברור. תן מענה מהיר לשאלה בלבד."
+
+# URL regex pattern for detecting URLs in text
+URL_PATTERN = r'https?://\S+'
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
@@ -88,7 +92,7 @@ def text():
     try:
         logger.info(f"Processing text request: {prompt}")
         chat_completion = client.chat.completions.create(
-            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v2:BKqOkT5f",
+            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v3:BOn7x7P7",
             messages=[{"role": "user", "content": prompt}]
         )
         
@@ -118,7 +122,7 @@ def voice_response():
         # First get the text response from GPT-4
         logger.info("Getting response from GPT-4...")
         chat_completion = client.chat.completions.create(
-            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v2:BKqOkT5f",
+            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v3:BOn7x7P7",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_text}
@@ -135,12 +139,22 @@ def voice_response():
         temp_path = temp_file.name
         temp_file.close()  # Close the file handle
         
-        # Generate TTS from the text response
+        # Strip URLs from the text before sending to TTS
+        urls = re.findall(URL_PATTERN, reply_text)
+        tts_text = reply_text
+        
+        # Replace URLs with a placeholder for TTS
+        if urls:
+            logger.info(f"Found URLs in response, removing for TTS: {urls}")
+            for url in urls:
+                tts_text = tts_text.replace(url, "קישור")
+        
+        # Generate TTS from the modified text (without URLs)
         logger.info("Generating TTS...")
         speech = client.audio.speech.create(
             model="tts-1-hd",  # Using HD model for better quality
             voice="onyx",
-            input=reply_text,
+            input=tts_text,
             speed=1.1  # Slightly faster speech for better responsiveness
         )
         
@@ -185,7 +199,7 @@ def speak():
         # Get response from GPT-4
         logger.info(f"Speak request: {user_text}")
         chat_completion = client.chat.completions.create(
-            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v2:BKqOkT5f",
+            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-v3:BOn7x7P7",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_text}
@@ -195,11 +209,21 @@ def speak():
         reply_text = chat_completion.choices[0].message.content
         logger.info(f"GPT-4 reply: {reply_text}")
         
-        # Generate speech from the text response
+        # Strip URLs from the text before sending to TTS
+        urls = re.findall(URL_PATTERN, reply_text)
+        tts_text = reply_text
+        
+        # Replace URLs with a placeholder for TTS
+        if urls:
+            logger.info(f"Found URLs in response, removing for TTS: {urls}")
+            for url in urls:
+                tts_text = tts_text.replace(url, "קישור")
+        
+        # Generate speech from the modified text response
         speech = client.audio.speech.create(
             model="tts-1",
             voice="onyx",
-            input=reply_text
+            input=tts_text
         )
         
         # Create and save to temporary file
