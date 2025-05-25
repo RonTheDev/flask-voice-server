@@ -1,6 +1,6 @@
 from flask import Flask, request, send_file, jsonify, make_response
 from flask_cors import CORS
-from openai import OpenAI
+import openai
 from pydub import AudioSegment
 import tempfile
 import os
@@ -9,49 +9,44 @@ import logging
 import base64
 import re
 from concurrent.futures import ThreadPoolExecutor
+from functions import query_knowledgebase, tool_definitions
+from system_prompt import get_system_prompt, ANSWER_PROMPT
+from dotenv import load_dotenv
 
+# Load environment variables from .env
+load_dotenv()
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Initialize the OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 app = Flask(__name__)
 CORS(app, expose_headers=['X-Response-Text-B64'])  # Changed header name
 
-# Thread pool for parallel processing
 executor = ThreadPoolExecutor(max_workers=4)
 
-SYSTEM_PROMPT = "תשיב בקצרה בעברית, בקול ברור. תן מענה מהיר לשאלה בלבד."
-
-# URL regex pattern for detecting URLs in text
 URL_PATTERN = r'https?://\S+'
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
     if "audio" not in request.files:
         return jsonify({"error": "No audio file"}), 400
-    
     audio_file = request.files["audio"]
     temp_in = None
     temp_in_path = None
     wav_path = None
-    
     try:
         # Create temp file with unique name
         temp_in = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
         temp_in_path = temp_in.name
         temp_in.close()  # Close the file handle
-        
         audio_file.save(temp_in_path)
         logger.info(f"Audio saved to temporary file: {temp_in_path}")
-        
         # Convert audio to WAV for Whisper
         audio = AudioSegment.from_file(temp_in_path)
         wav_path = temp_in_path.replace(".webm", ".wav")
         audio.export(wav_path, format="wav")
         logger.info(f"Converted audio to WAV: {wav_path}")
-        
         with open(wav_path, "rb") as f:
             # Use OpenAI's Whisper for transcription
             logger.info("Sending to Whisper API...")
@@ -61,16 +56,13 @@ def transcribe():
                 response_format="text",
                 language="he"  # Hebrew
             )
-            
             result = transcription.strip()
             logger.info(f"Transcription result: {result}")
             return jsonify({"transcription": result})
-    
     except Exception as e:
         error_trace = traceback.format_exc()
         logger.error(f"Transcription error: {str(e)}\n{error_trace}")
         return jsonify({"error": f"Failed to transcribe: {str(e)}"}), 500
-    
     finally:
         # Clean up temporary files
         try:
@@ -85,189 +77,53 @@ def transcribe():
 def text():
     data = request.get_json()
     prompt = data.get("prompt", "")
-    
     if not prompt:
         return jsonify({"error": "No prompt provided"}), 400
-    
-    try:
-        logger.info(f"Processing text request: {prompt}")
-        chat_completion = client.chat.completions.create(
-            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-gen2-3:BZEJ9Wju",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        reply = chat_completion.choices[0].message.content
-        logger.info(f"Response received: {reply[:50]}...")
-        return jsonify({"reply": reply})
-    
-    except Exception as e:
-        error_trace = traceback.format_exc()
-        logger.error(f"Text error: {str(e)}\n{error_trace}")
-        return jsonify({"error": f"Text request failed: {str(e)}"}), 500
 
-@app.route("/voice-response", methods=["POST"])
-def voice_response():
-    """Optimized endpoint that gets AI response and creates TTS"""
-    data = request.get_json()
-    user_text = data.get("text", "")
-    
-    if not user_text:
-        return jsonify({"error": "No text provided"}), 400
-    
-    temp_file = None
-    
     try:
-        logger.info(f"Voice response request: {user_text}")
-        
-        # First get the text response from GPT-4
-        logger.info("Getting response from GPT-4...")
-        chat_completion = client.chat.completions.create(
-            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-gen2-3:BZEJ9Wju",
+        logger.info(f"Processing prompt: {prompt}")
+
+        # Step 1: Ask GPT-4o what to do
+        response = client.chat.completions.create(
+            model="gpt-4o",
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_text}
+                {"role": "system", "content": get_system_prompt(tool_definitions)},
+                {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
-            max_tokens=100
+            tools=tool_definitions,
+            tool_choice="auto"
         )
-        
-        reply_text = chat_completion.choices[0].message.content
-        logger.info(f"GPT-4 reply: {reply_text}")
-        
-        # Create a temporary file for the audio
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        temp_path = temp_file.name
-        temp_file.close()  # Close the file handle
-        
-        # Strip URLs from the text before sending to TTS
-        urls = re.findall(URL_PATTERN, reply_text)
-        tts_text = reply_text
-        
-        # Replace URLs with a placeholder for TTS
-        if urls:
-            logger.info(f"Found URLs in response, removing for TTS: {urls}")
-            for url in urls:
-                tts_text = tts_text.replace(url, "קישור")
-        
-        # Generate TTS from the modified text (without URLs)
-        logger.info("Generating TTS...")
-        speech = client.audio.speech.create(
-            model="tts-1-hd",  # Using HD model for better quality
-            voice="onyx",
-            input=tts_text,
-            speed=1.1  # Slightly faster speech for better responsiveness
-        )
-        
-        speech.stream_to_file(temp_path)
-        logger.info(f"TTS saved to: {temp_path}")
-        
-        # Base64 encode the Hebrew text to avoid Unicode issues in headers
-        b64_text = base64.b64encode(reply_text.encode('utf-8')).decode('ascii')
-        
-        # Create response with the audio file and encoded text header
-        response = make_response(send_file(temp_path, mimetype="audio/mpeg"))
-        response.headers['X-Response-Text-B64'] = b64_text  # Use a new header name
-        logger.info("Sending response to client")
-        
-        # Not removing temp file here - let OS handle it later
-        # This prevents file busy errors on Windows
-        
-        return response
-    
-    except Exception as e:
-        error_trace = traceback.format_exc()
-        logger.error(f"Voice response error: {str(e)}\n{error_trace}")
-        
-        if temp_file and os.path.exists(temp_file.name):
-            try:
-                os.unlink(temp_file.name)
-            except:
-                pass
-                
-        return jsonify({"error": f"Voice response failed: {str(e)}"}), 500
 
-@app.route("/speak", methods=["POST"])
-def speak():
-    """Legacy endpoint for TTS (kept for backward compatibility)"""
-    data = request.get_json()
-    user_text = data.get("text", "")
-    
-    if not user_text:
-        return jsonify({"error": "No text provided"}), 400
-    
-    try:
-        # Get response from GPT-4
-        logger.info(f"Speak request: {user_text}")
-        chat_completion = client.chat.completions.create(
-            model="ft:gpt-4o-2024-08-06:yahli-gal-personal:tut-bot-gen2-3:BZEJ9Wju",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_text}
-            ]
-        )
-        
-        reply_text = chat_completion.choices[0].message.content
-        logger.info(f"GPT-4 reply: {reply_text}")
-        
-        # Strip URLs from the text before sending to TTS
-        urls = re.findall(URL_PATTERN, reply_text)
-        tts_text = reply_text
-        
-        # Replace URLs with a placeholder for TTS
-        if urls:
-            logger.info(f"Found URLs in response, removing for TTS: {urls}")
-            for url in urls:
-                tts_text = tts_text.replace(url, "קישור")
-        
-        # Generate speech from the modified text response
-        speech = client.audio.speech.create(
-            model="tts-1",
-            voice="onyx",
-            input=tts_text
-        )
-        
-        # Create and save to temporary file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        temp_path = temp_file.name
-        temp_file.close()
-        
-        speech.stream_to_file(temp_path)
-        logger.info(f"TTS saved to: {temp_path}")
-        
-        return send_file(temp_path, mimetype="audio/mpeg")
-    
-    except Exception as e:
-        error_trace = traceback.format_exc()
-        logger.error(f"Speak error: {str(e)}\n{error_trace}")
-        return jsonify({"error": f"Failed to generate speech: {str(e)}"}), 500
+        tool_call = response.choices[0].message.tool_calls[0]
+        tool_name = tool_call.function.name
+        tool_args = eval(tool_call.function.arguments)
 
-# Simple monitoring endpoint
+        if tool_name == "query_knowledgebase":
+            tool_result = query_knowledgebase(**tool_args)
+
+            follow_up = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": ANSWER_PROMPT},
+                    {"role": "user", "content": prompt},
+                    response.choices[0].message,
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_name,
+                        "content": str(tool_result)
+                    }
+                ]
+            )
+            return jsonify({"reply": follow_up.choices[0].message.content})
+
+    except Exception as e:
+        logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
 
-if __name__ == "__main__":
-    import multiprocessing
-    from gunicorn.app.base import BaseApplication
-    
-    class FlaskApplication(BaseApplication):
-        def __init__(self, app, options=None):
-            self.application = app
-            self.options = options or {}
-            super().__init__()
-            
-        def load_config(self):
-            for key, value in self.options.items():
-                self.cfg.set(key, value)
-                
-        def load(self):
-            return self.application
-    
-    options = {
-        "bind": "0.0.0.0:5000",
-        "workers": multiprocessing.cpu_count() * 2 + 1,
-        "timeout": 120,  # Increase timeout for TTS processing
-        "keepalive": 5,  # Keep connections alive to reduce connection overhead
-    }
-    
-    FlaskApplication(app, options).run()
+
+
