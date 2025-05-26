@@ -106,12 +106,12 @@ def text():
 
 @app.route("/text-stream", methods=["POST"])
 def text_stream():
-    def generate():
-        prompt = request.get_json().get("prompt", "")
-        if not prompt:
-            yield "error: No prompt provided"
-            return
+    data = request.get_json()
+    prompt = data.get("prompt", "")
+    if not prompt:
+        return Response("error: No prompt provided", mimetype="text/plain")
 
+    def generate():
         try:
             response = client.chat.completions.create(
                 model="gpt-4o",
@@ -149,7 +149,6 @@ def text_stream():
                 for chunk in stream:
                     if chunk.choices[0].delta.content:
                         yield chunk.choices[0].delta.content
-
         except Exception as e:
             yield f"\n[שגיאה: {str(e)}]"
 
