@@ -9,7 +9,6 @@ import openai
 load_dotenv()
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-
 def run_bot():
     print("🤖 שוחח עם הבוט. הקלד 'exit' כדי לצאת.")
 
@@ -37,8 +36,10 @@ def run_bot():
             if tool_name == "query_knowledgebase":
                 tool_result = query_knowledgebase(**tool_args)
 
+                # Step 2: Stream the follow-up response
                 follow_up = client.chat.completions.create(
                     model="gpt-4o",
+                    stream=True,
                     messages=[
                         {"role": "system", "content": ANSWER_PROMPT},
                         {"role": "user", "content": user_input},
@@ -52,7 +53,11 @@ def run_bot():
                     ]
                 )
 
-                print("🤖 בוט:", follow_up.choices[0].message.content)
+                print("🤖 בוט: ", end="", flush=True)
+                for chunk in follow_up:
+                    if chunk.choices[0].delta.content:
+                        print(chunk.choices[0].delta.content, end="", flush=True)
+                print()
 
         except Exception as e:
             print("❌ שגיאה:")
