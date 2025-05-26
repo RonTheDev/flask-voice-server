@@ -102,27 +102,57 @@ def text():
         if tool_name == "query_knowledgebase":
             tool_result = query_knowledgebase(**tool_args)
 
-            def generate_stream():
-    stream = client.chat.completions.create(
-        model="gpt-4o",
-        stream=True,
-        messages=[
-            {"role": "system", "content": ANSWER_PROMPT},
-            {"role": "user", "content": prompt},
-            response.choices[0].message,
-            {
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "name": tool_name,
-                "content": str(tool_result)
-            }
-        ]
-    )
-    for chunk in stream:
-        if chunk.choices[0].delta.content:
-            yield chunk.choices[0].delta.content
+        @app.route("/text-stream", methods=["POST"])
+def text_stream():
+    def generate():
+        prompt = request.get_json().get("prompt", "")
+        if not prompt:
+            yield "error: No prompt provided"
+            return
 
-return Response(generate_stream(), mimetype='text/plain')
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": get_system_prompt(tool_definitions)},
+                    {"role": "user", "content": prompt}
+                ],
+                tools=tool_definitions,
+                tool_choice="auto"
+            )
+
+            tool_call = response.choices[0].message.tool_calls[0]
+            tool_name = tool_call.function.name
+            tool_args = eval(tool_call.function.arguments)
+
+            if tool_name == "query_knowledgebase":
+                tool_result = query_knowledgebase(**tool_args)
+
+                stream = client.chat.completions.create(
+                    model="gpt-4o",
+                    stream=True,
+                    messages=[
+                        {"role": "system", "content": ANSWER_PROMPT},
+                        {"role": "user", "content": prompt},
+                        response.choices[0].message,
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_name,
+                            "content": str(tool_result)
+                        }
+                    ]
+                )
+
+                for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        yield chunk.choices[0].delta.content
+
+        except Exception as e:
+            yield f"\n[שגיאה: {str(e)}]"
+
+    return app.response_class(generate(), mimetype='text/plain')
+
 
 
     except Exception as e:
