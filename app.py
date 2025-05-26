@@ -1,5 +1,4 @@
-from flask import Response
-from flask import Flask, request, send_file, jsonify, make_response
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import openai
 from pydub import AudioSegment
@@ -7,8 +6,6 @@ import tempfile
 import os
 import traceback
 import logging
-import base64
-import re
 from concurrent.futures import ThreadPoolExecutor
 from functions import query_knowledgebase, tool_definitions
 from system_prompt import get_system_prompt, ANSWER_PROMPT
@@ -16,63 +13,51 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env
 load_dotenv()
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Initialize OpenAI and Flask
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 app = Flask(__name__)
-CORS(app, expose_headers=['X-Response-Text-B64'])  # Changed header name
+CORS(app, expose_headers=['X-Response-Text-B64'])
 
 executor = ThreadPoolExecutor(max_workers=4)
-
-URL_PATTERN = r'https?://\S+'
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
     if "audio" not in request.files:
         return jsonify({"error": "No audio file"}), 400
     audio_file = request.files["audio"]
-    temp_in = None
     temp_in_path = None
     wav_path = None
     try:
-        # Create temp file with unique name
         temp_in = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
         temp_in_path = temp_in.name
-        temp_in.close()  # Close the file handle
+        temp_in.close()
         audio_file.save(temp_in_path)
-        logger.info(f"Audio saved to temporary file: {temp_in_path}")
-        # Convert audio to WAV for Whisper
+
         audio = AudioSegment.from_file(temp_in_path)
         wav_path = temp_in_path.replace(".webm", ".wav")
         audio.export(wav_path, format="wav")
-        logger.info(f"Converted audio to WAV: {wav_path}")
+
         with open(wav_path, "rb") as f:
-            # Use OpenAI's Whisper for transcription
-            logger.info("Sending to Whisper API...")
             transcription = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=f,
                 response_format="text",
-                language="he"  # Hebrew
+                language="he"
             )
-            result = transcription.strip()
-            logger.info(f"Transcription result: {result}")
-            return jsonify({"transcription": result})
+            return jsonify({"transcription": transcription.strip()})
     except Exception as e:
-        error_trace = traceback.format_exc()
-        logger.error(f"Transcription error: {str(e)}\n{error_trace}")
+        logger.error(f"Transcription error: {traceback.format_exc()}")
         return jsonify({"error": f"Failed to transcribe: {str(e)}"}), 500
     finally:
-        # Clean up temporary files
-        try:
-            if temp_in_path and os.path.exists(temp_in_path):
-                os.unlink(temp_in_path)
-            if wav_path and os.path.exists(wav_path):
-                os.unlink(wav_path)
-        except Exception as e:
-            logger.error(f"Cleanup error: {str(e)}")
+        if temp_in_path and os.path.exists(temp_in_path):
+            os.unlink(temp_in_path)
+        if wav_path and os.path.exists(wav_path):
+            os.unlink(wav_path)
 
 @app.route("/text", methods=["POST"])
 def text():
@@ -83,8 +68,6 @@ def text():
 
     try:
         logger.info(f"Processing prompt: {prompt}")
-
-        # Step 1: Ask GPT-4o what to do
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -102,7 +85,26 @@ def text():
         if tool_name == "query_knowledgebase":
             tool_result = query_knowledgebase(**tool_args)
 
-        @app.route("/text-stream", methods=["POST"])
+            follow_up = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": ANSWER_PROMPT},
+                    {"role": "user", "content": prompt},
+                    response.choices[0].message,
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_name,
+                        "content": str(tool_result)
+                    }
+                ]
+            )
+            return jsonify({"reply": follow_up.choices[0].message.content})
+    except Exception as e:
+        logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/text-stream", methods=["POST"])
 def text_stream():
     def generate():
         prompt = request.get_json().get("prompt", "")
@@ -151,17 +153,8 @@ def text_stream():
         except Exception as e:
             yield f"\n[שגיאה: {str(e)}]"
 
-    return app.response_class(generate(), mimetype='text/plain')
-
-
-
-    except Exception as e:
-        logger.error(traceback.format_exc())
-        return jsonify({"error": str(e)}), 500
+    return Response(generate(), mimetype='text/plain')
 
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
-
-
-
