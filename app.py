@@ -1,3 +1,4 @@
+from flask import Response
 from flask import Flask, request, send_file, jsonify, make_response
 from flask_cors import CORS
 import openai
@@ -101,21 +102,28 @@ def text():
         if tool_name == "query_knowledgebase":
             tool_result = query_knowledgebase(**tool_args)
 
-            follow_up = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": ANSWER_PROMPT},
-                    {"role": "user", "content": prompt},
-                    response.choices[0].message,
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_name,
-                        "content": str(tool_result)
-                    }
-                ]
-            )
-            return jsonify({"reply": follow_up.choices[0].message.content})
+            def generate_stream():
+    stream = client.chat.completions.create(
+        model="gpt-4o",
+        stream=True,
+        messages=[
+            {"role": "system", "content": ANSWER_PROMPT},
+            {"role": "user", "content": prompt},
+            response.choices[0].message,
+            {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_name,
+                "content": str(tool_result)
+            }
+        ]
+    )
+    for chunk in stream:
+        if chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+
+return Response(generate_stream(), mimetype='text/plain')
+
 
     except Exception as e:
         logger.error(traceback.format_exc())
