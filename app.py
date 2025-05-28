@@ -105,7 +105,7 @@ def text():
                 model="gpt-4o",
                 messages=follow_up_messages
             )
-              logger.debug(f"Model reply: {follow_up.choices[0].message.content}")
+            logger.debug(f"Model reply: {follow_up.choices[0].message.content}")
             return jsonify({"reply": follow_up.choices[0].message.content})
     except Exception as e:
         logger.error(traceback.format_exc())
