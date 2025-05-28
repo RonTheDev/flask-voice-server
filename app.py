@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import openai
+import json
 from pydub import AudioSegment
 import tempfile
 import os
@@ -95,7 +96,7 @@ def text():
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "name": tool_name,
-                        "content": str(tool_result)
+                         "content": json.dumps(tool_result, ensure_ascii=False)
                     }
                 ]
             )
@@ -141,7 +142,7 @@ def text_stream():
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             "name": tool_name,
-                            "content": str(tool_result)
+                          "content": json.dumps(tool_result, ensure_ascii=False)
                         }
                     ]
                 )
