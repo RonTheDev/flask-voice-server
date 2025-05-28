@@ -132,7 +132,7 @@ def text_stream():
 
             tool_call = response.choices[0].message.tool_calls[0]
             tool_name = tool_call.function.name
-                tool_args = json.loads(tool_call.function.arguments)
+            tool_args = json.loads(tool_call.function.arguments)
             logger.debug(f"[stream] Tool call arguments: {tool_args}")
 
             if tool_name == "query_knowledgebase":
@@ -161,7 +161,7 @@ def text_stream():
 
                 for chunk in stream:
                     if chunk.choices[0].delta.content:
-                          logger.debug(f"[stream] Chunk: {chunk.choices[0].delta.content}")
+                        logger.debug(f"[stream] Chunk: {chunk.choices[0].delta.content}")
                         yield chunk.choices[0].delta.content
         except Exception as e:
             yield f"\n[שגיאה: {str(e)}]"
