@@ -103,7 +103,7 @@ def text():
 
             follow_up = client.chat.completions.create(
                 model="gpt-4o",
-                messages=follow_up_messages ]
+                messages=follow_up_messages
             )
               logger.debug(f"Model reply: {follow_up.choices[0].message.content}")
             return jsonify({"reply": follow_up.choices[0].message.content})
