@@ -86,7 +86,7 @@ def text():
 
         if tool_name == "query_knowledgebase":
             tool_result = query_knowledgebase(**tool_args)
-             logger.debug(f"Tool result: {tool_result}")
+            logger.debug(f"Tool result: {tool_result}")
 
             follow_up_messages = [
                 {"role": "system", "content": ANSWER_PROMPT},
