@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Initialize OpenAI and Flask
@@ -81,25 +81,31 @@ def text():
 
         tool_call = response.choices[0].message.tool_calls[0]
         tool_name = tool_call.function.name
-        tool_args = eval(tool_call.function.arguments)
+        tool_args = json.loads(tool_call.function.arguments)
+        logger.debug(f"Tool call arguments: {tool_args}")
 
         if tool_name == "query_knowledgebase":
             tool_result = query_knowledgebase(**tool_args)
+             logger.debug(f"Tool result: {tool_result}")
+
+            follow_up_messages = [
+                {"role": "system", "content": ANSWER_PROMPT},
+                {"role": "user", "content": prompt},
+                response.choices[0].message,
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": tool_name,
+                    "content": json.dumps(tool_result, ensure_ascii=False)
+                }
+            ]
+            logger.debug(f"Follow up messages: {follow_up_messages}")
 
             follow_up = client.chat.completions.create(
                 model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": ANSWER_PROMPT},
-                    {"role": "user", "content": prompt},
-                    response.choices[0].message,
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_name,
-                         "content": json.dumps(tool_result, ensure_ascii=False)
-                    }
-                ]
+                messages=follow_up_messages ]
             )
+              logger.debug(f"Model reply: {follow_up.choices[0].message.content}")
             return jsonify({"reply": follow_up.choices[0].message.content})
     except Exception as e:
         logger.error(traceback.format_exc())
@@ -126,29 +132,36 @@ def text_stream():
 
             tool_call = response.choices[0].message.tool_calls[0]
             tool_name = tool_call.function.name
-            tool_args = eval(tool_call.function.arguments)
+                tool_args = json.loads(tool_call.function.arguments)
+            logger.debug(f"[stream] Tool call arguments: {tool_args}")
 
             if tool_name == "query_knowledgebase":
                 tool_result = query_knowledgebase(**tool_args)
+                logger.debug(f"[stream] Tool result: {tool_result}")
+
+                follow_up_messages = [
+                    {"role": "system", "content": ANSWER_PROMPT},
+                    {"role": "user", "content": prompt},
+                    response.choices[0].message,
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_name,
+                        "content": json.dumps(tool_result, ensure_ascii=False)
+                    }
+                ]
+                logger.debug(f"[stream] Follow up messages: {follow_up_messages}")
+
 
                 stream = client.chat.completions.create(
                     model="gpt-4o",
                     stream=True,
-                    messages=[
-                        {"role": "system", "content": ANSWER_PROMPT},
-                        {"role": "user", "content": prompt},
-                        response.choices[0].message,
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_name,
-                          "content": json.dumps(tool_result, ensure_ascii=False)
-                        }
-                    ]
+                       messages=follow_up_messages
                 )
 
                 for chunk in stream:
                     if chunk.choices[0].delta.content:
+                          logger.debug(f"[stream] Chunk: {chunk.choices[0].delta.content}")
                         yield chunk.choices[0].delta.content
         except Exception as e:
             yield f"\n[שגיאה: {str(e)}]"
