@@ -161,9 +161,11 @@ def text_stream():
 
                 for chunk in stream:
                     if chunk.choices[0].delta.content:
-                        logger.debug(f"[stream] Chunk: {chunk.choices[0].delta.content}")
-                        yield chunk.choices[0].delta.content
+                        content_to_yield = chunk.choices[0].delta.content
+                        logger.debug(f"[stream] Yielding chunk: {content_to_yield}")
+                        yield content_to_yield
         except Exception as e:
+            logger.error(f"[stream] Error during generation: {traceback.format_exc()}")
             yield f"\n[שגיאה: {str(e)}]"
 
     return Response(generate(), mimetype='text/plain')
