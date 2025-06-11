@@ -184,7 +184,7 @@ def speak():
 
         logger.info(f"Generating GPT reply for: {user_text}")
 
-        # STEP 1: Get GPT response (not echo)
+        # STEP 1: Get GPT response
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -195,34 +195,41 @@ def speak():
             tool_choice="auto"
         )
 
-        tool_call = response.choices[0].message.tool_calls[0]
-        tool_name = tool_call.function.name
-        tool_args = json.loads(tool_call.function.arguments)
+        choice = response.choices[0].message
 
-        tool_result = query_knowledgebase(**tool_args)
+        if choice.tool_calls:
+            # ✅ Tool call flow
+            tool_call = choice.tool_calls[0]
+            tool_name = tool_call.function.name
+            tool_args = json.loads(tool_call.function.arguments)
 
-        followup_messages = [
-            {"role": "system", "content": ANSWER_PROMPT},
-            {"role": "user", "content": user_text},
-            response.choices[0].message,
-            {
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "name": tool_name,
-                "content": json.dumps(tool_result, ensure_ascii=False)
-            }
-        ]
+            tool_result = query_knowledgebase(**tool_args)
 
-        followup = client.chat.completions.create(
-            model="gpt-4o",
-            messages=followup_messages
-        )
+            followup_messages = [
+                {"role": "system", "content": ANSWER_PROMPT},
+                {"role": "user", "content": user_text},
+                choice,
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": tool_name,
+                    "content": json.dumps(tool_result, ensure_ascii=False)
+                }
+            ]
 
-        reply_text = followup.choices[0].message.content.strip()
+            followup = client.chat.completions.create(
+                model="gpt-4o",
+                messages=followup_messages
+            )
+
+            reply_text = followup.choices[0].message.content.strip()
+        else:
+            # ✅ Simple reply, no tools used
+            reply_text = choice.content.strip()
 
         logger.info(f"TTS final reply: {reply_text}")
 
-        # STEP 2: Generate speech from GPT reply
+        # STEP 2: Generate TTS from reply text
         tts_response = client.audio.speech.create(
             model="tts-1",
             voice="onyx",
@@ -230,17 +237,18 @@ def speak():
             response_format="mp3"
         )
 
-        # STEP 3: Stream audio + send base64-encoded reply text header
+        # STEP 3: Stream TTS audio and attach base64-encoded text header
         def audio_stream():
             try:
                 for chunk in tts_response.iter_bytes(chunk_size=4096):
                     yield chunk
-            except Exception as e:
+            except Exception:
                 logger.error(f"TTS streaming error: {traceback.format_exc()}")
-                yield b''
+                yield b""
 
         import base64
         b64_reply = base64.b64encode(reply_text.encode("utf-8")).decode("utf-8")
+
         resp = Response(audio_stream(), mimetype="audio/mpeg")
         resp.headers["X-Response-Text-B64"] = b64_reply
         return resp
