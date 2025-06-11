@@ -173,3 +173,37 @@ def text_stream():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
+@app.route("/speak", methods=["POST"])
+def speak():
+    try:
+        data = request.get_json()
+        text = data.get("text", "")
+        if not text:
+            return Response("error: No text provided", mimetype="text/plain")
+
+        logger.info(f"Generating speech for: {text}")
+
+        # Request OpenAI TTS with streaming audio
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice="onyx",
+            response_format="mp3",
+            input=text,
+            speed=1.0,
+            stream=True
+        )
+
+        def audio_stream():
+            try:
+                for chunk in response.iter_bytes(chunk_size=4096):
+                    yield chunk
+            except Exception as e:
+                logger.error(f"TTS streaming error: {traceback.format_exc()}")
+                yield b''
+
+        return Response(audio_stream(), mimetype="audio/mpeg")
+
+    except Exception as e:
+        logger.error(f"TTS endpoint error: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
