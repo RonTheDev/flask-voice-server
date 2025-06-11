@@ -227,7 +227,7 @@ def speak():
             model="tts-1",
             voice="onyx",
             input=reply_text,
-            response_format="opus"
+            response_format="mp3"
         )
 
         # STEP 3: Stream audio + send base64-encoded reply text header
