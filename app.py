@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functions import query_knowledgebase, tool_definitions
 from system_prompt import get_system_prompt, ANSWER_PROMPT
 from dotenv import load_dotenv
+import re
 
 # Load environment variables from .env
 load_dotenv()
@@ -226,7 +227,6 @@ def speak():
         else:
             # ✅ Simple reply, no tools used
             reply_text = choice.content.strip()
-import re
 
 # Remove URLs from the reply text to prevent TTS from reading them
 cleaned_reply = re.sub(r'https?://\S+', '', reply_text)
