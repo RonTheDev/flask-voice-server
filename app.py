@@ -230,7 +230,7 @@ def speak():
             response_format="opus"
         )
 
-        # STEP 3: Stream audio
+        # STEP 3: Stream audio + send base64-encoded reply text header
         def audio_stream():
             try:
                 for chunk in tts_response.iter_bytes(chunk_size=4096):
@@ -239,13 +239,11 @@ def speak():
                 logger.error(f"TTS streaming error: {traceback.format_exc()}")
                 yield b''
 
-        from flask import make_response
-import base64
-
-b64_reply = base64.b64encode(reply_text.encode("utf-8")).decode("utf-8")
-resp = Response(audio_stream(), mimetype="audio/mpeg")
-resp.headers["X-Response-Text-B64"] = b64_reply
-return resp
+        import base64
+        b64_reply = base64.b64encode(reply_text.encode("utf-8")).decode("utf-8")
+        resp = Response(audio_stream(), mimetype="audio/mpeg")
+        resp.headers["X-Response-Text-B64"] = b64_reply
+        return resp
 
     except Exception as e:
         logger.error(f"TTS endpoint error: {traceback.format_exc()}")
