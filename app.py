@@ -185,7 +185,6 @@ def speak():
 
         logger.info(f"Generating GPT reply for: {user_text}")
 
-        # STEP 1: Get GPT response
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -199,7 +198,6 @@ def speak():
         choice = response.choices[0].message
 
         if choice.tool_calls:
-            # ✅ Tool call flow
             tool_call = choice.tool_calls[0]
             tool_name = tool_call.function.name
             tool_args = json.loads(tool_call.function.arguments)
@@ -225,15 +223,13 @@ def speak():
 
             reply_text = followup.choices[0].message.content.strip()
         else:
-            # ✅ Simple reply, no tools used
             reply_text = choice.content.strip()
 
-# Remove URLs from the reply text to prevent TTS from reading them
-cleaned_reply = re.sub(r'https?://\S+', '', reply_text)
+        # ✅ Clean reply for TTS
+        cleaned_reply = re.sub(r'https?://\S+', '', reply_text)
 
-        logger.info(f"TTS final reply: {reply_text}")
+        logger.info(f"TTS final reply: {cleaned_reply}")
 
-        # STEP 2: Generate TTS from reply text
         tts_response = client.audio.speech.create(
             model="tts-1",
             voice="onyx",
@@ -241,18 +237,16 @@ cleaned_reply = re.sub(r'https?://\S+', '', reply_text)
             response_format="mp3"
         )
 
-        # STEP 3: Stream TTS audio and attach base64-encoded text header
         def audio_stream():
             try:
                 for chunk in tts_response.iter_bytes(chunk_size=4096):
                     yield chunk
-            except Exception:
+            except Exception as e:
                 logger.error(f"TTS streaming error: {traceback.format_exc()}")
-                yield b""
+                yield b''
 
         import base64
         b64_reply = base64.b64encode(reply_text.encode("utf-8")).decode("utf-8")
-
         resp = Response(audio_stream(), mimetype="audio/mpeg")
         resp.headers["X-Response-Text-B64"] = b64_reply
         return resp
