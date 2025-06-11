@@ -178,23 +178,62 @@ def health():
 def speak():
     try:
         data = request.get_json()
-        text = data.get("text", "")
-        if not text:
+        user_text = data.get("text", "")
+        if not user_text:
             return Response("error: No text provided", mimetype="text/plain")
 
-        logger.info(f"Generating speech for: {text}")
+        logger.info(f"Generating GPT reply for: {user_text}")
 
-        # Request OpenAI TTS without stream=True
-        response = client.audio.speech.create(
+        # STEP 1: Get GPT response (not echo)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": get_system_prompt(tool_definitions)},
+                {"role": "user", "content": user_text}
+            ],
+            tools=tool_definitions,
+            tool_choice="auto"
+        )
+
+        tool_call = response.choices[0].message.tool_calls[0]
+        tool_name = tool_call.function.name
+        tool_args = json.loads(tool_call.function.arguments)
+
+        tool_result = query_knowledgebase(**tool_args)
+
+        followup_messages = [
+            {"role": "system", "content": ANSWER_PROMPT},
+            {"role": "user", "content": user_text},
+            response.choices[0].message,
+            {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_name,
+                "content": json.dumps(tool_result, ensure_ascii=False)
+            }
+        ]
+
+        followup = client.chat.completions.create(
+            model="gpt-4o",
+            messages=followup_messages
+        )
+
+        reply_text = followup.choices[0].message.content.strip()
+
+        logger.info(f"TTS final reply: {reply_text}")
+
+        # STEP 2: Generate speech from GPT reply
+        tts_response = client.audio.speech.create(
             model="tts-1",
             voice="onyx",
-            input=text,
+            input=reply_text,
             response_format="mp3"
         )
 
+        # STEP 3: Stream audio
         def audio_stream():
             try:
-                for chunk in response.iter_bytes(chunk_size=4096):
+                for chunk in tts_response.iter_bytes(chunk_size=4096):
                     yield chunk
             except Exception as e:
                 logger.error(f"TTS streaming error: {traceback.format_exc()}")
