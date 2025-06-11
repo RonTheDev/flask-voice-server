@@ -227,7 +227,7 @@ def speak():
             model="tts-1",
             voice="onyx",
             input=reply_text,
-            response_format="mp3"
+            response_format="opus"
         )
 
         # STEP 3: Stream audio
@@ -239,7 +239,13 @@ def speak():
                 logger.error(f"TTS streaming error: {traceback.format_exc()}")
                 yield b''
 
-        return Response(audio_stream(), mimetype="audio/mpeg")
+        from flask import make_response
+import base64
+
+b64_reply = base64.b64encode(reply_text.encode("utf-8")).decode("utf-8")
+resp = Response(audio_stream(), mimetype="audio/mpeg")
+resp.headers["X-Response-Text-B64"] = b64_reply
+return resp
 
     except Exception as e:
         logger.error(f"TTS endpoint error: {traceback.format_exc()}")
