@@ -174,8 +174,16 @@ def text_stream():
 def health():
     return jsonify({"status": "ok"})
 
-@app.route("/speak", methods=["POST"])
+@app.route("/speak", methods=["POST", "OPTIONS"])
 def speak():
+    if request.method == "OPTIONS":
+        # Handle CORS preflight
+        response = Response()
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
+
     try:
         data = request.get_json()
         text = data.get("text", "")
@@ -184,7 +192,7 @@ def speak():
 
         logger.info(f"Generating speech for: {text}")
 
-        # Request OpenAI TTS with streaming audio
+        # Request OpenAI TTS with streaming response
         response = client.audio.speech.create(
             model="tts-1",
             voice="onyx",
@@ -202,7 +210,10 @@ def speak():
                 logger.error(f"TTS streaming error: {traceback.format_exc()}")
                 yield b''
 
-        return Response(audio_stream(), mimetype="audio/mpeg")
+        # Stream back the audio response with CORS headers
+        flask_response = Response(audio_stream(), mimetype="audio/mpeg")
+        flask_response.headers["Access-Control-Allow-Origin"] = "*"
+        return flask_response
 
     except Exception as e:
         logger.error(f"TTS endpoint error: {traceback.format_exc()}")
