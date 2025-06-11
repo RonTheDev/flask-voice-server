@@ -226,6 +226,10 @@ def speak():
         else:
             # ✅ Simple reply, no tools used
             reply_text = choice.content.strip()
+import re
+
+# Remove URLs from the reply text to prevent TTS from reading them
+cleaned_reply = re.sub(r'https?://\S+', '', reply_text)
 
         logger.info(f"TTS final reply: {reply_text}")
 
@@ -233,7 +237,7 @@ def speak():
         tts_response = client.audio.speech.create(
             model="tts-1",
             voice="onyx",
-            input=reply_text,
+            input=cleaned_reply,
             response_format="mp3"
         )
 
